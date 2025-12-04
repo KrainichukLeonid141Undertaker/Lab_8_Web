@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="uk">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Лабораторна робота №8 - Canvas Animation</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        background-color: #f4f4f4;
+        margin: 0;
+        text-align: center;
+      }
+      h1 {
+        color: #333;
+      }
+      canvas {
+        border: 1px solid #ccc;
+        background-color: #ffffff;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+      }
+      .controls {
+        margin: 20px;
+      }
+      button {
+        font-size: 1.1em;
+        padding: 10px 20px;
+        cursor: pointer;
+        border: none;
+        border-radius: 5px;
+        background-color: #007bff;
+        color: white;
+        margin: 0 5px;
+      }
+      button:hover {
+        background-color: #0056b3;
+      }
+      #stopButton {
+        background-color: #dc3545;
+      }
+      #stopButton:hover {
+        background-color: #a71d2a;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Лабораторна робота №8</h1>
+
+    <div class="controls">
+      <button id="animateButton">Запустити анімацію</button>
+      <button id="stopButton">Зупинити анімацію</button>
+    </div>
+
+    <canvas id="myCanvas" width="700" height="500">
+      Ваш браузер не підтримує тег canvas.
+    </canvas>
+
+    <script>
+      window.onload = function () {
+        const canvas = document.getElementById("myCanvas");
+        const ctx = canvas.getContext("2d");
+        const animateBtn = document.getElementById("animateButton");
+        const stopBtn = document.getElementById("stopButton");
+
+        let isAnimating = false;
+        let animationFrameId = null;
+
+        // Початковий час для розрахунку циклів анімації
+        let startTime = Date.now();
+
+        // --- СТАН ФІГУР ---
+        // Ми зберігаємо базові координати, а поточні (current) будемо обчислювати
+        const figures = {
+          body: { x: 350, y: 200, rx: 110, ry: 70, color: "blue" },
+          rect1: { x: 300, y: 270, w: 100, h: 40, color: "blue" },
+          rect2: { x: 420, y: 270, w: 50, h: 50, color: "blue" },
+
+          // Обертання голови (dur="5s")
+          headRotate: { cx: 280, cy: 110, r: 35, color: "blue", angle: 0 },
+
+          // Зміна кольору (dur="4s")
+          headColor: { cx: 420, cy: 110, r: 35, currentColor: "blue" },
+
+          // Рух руки вгору-вниз (dur="1.5s")
+          armMove: {
+            x: 220,
+            baseY: 180,
+            w: 50,
+            h: 50,
+            color: "blue",
+            currentY: 180,
+          },
+
+          // Масштабування руки (dur="3s")
+          armScale: {
+            baseX: 480,
+            baseW: 50,
+            baseH: 50,
+            y: 180,
+            currentX: 480,
+            currentW: 50,
+            currentH: 50,
+            color: "blue",
+          },
+
+          // Нахил (Skew) ноги (dur="2s")
+          legSkew: {
+            x: 230,
+            y: 270,
+            w: 50,
+            h: 50,
+            color: "blue",
+            skewAngle: 0,
+          },
+
+          text: { content: "Анімація Canvas", x: 350, y: 450, color: "#555" },
+        };
+
+        // --- ДОПОМІЖНІ ФУНКЦІЇ ---
+
+        // Функція для інтерполяції між двома кольорами (для імітації SVG values="blue; red; green")
+        function lerpColor(color1, color2, factor) {
+          // Простий варіант: повертаємо один з кольорів,
+          // або можна реалізувати повне змішування RGB.
+          // Для цієї лаби зробимо плавний перехід через RGB.
+          const c1 = hexToRgb(color1);
+          const c2 = hexToRgb(color2);
+          const result = {
+            r: Math.round(c1.r + (c2.r - c1.r) * factor),
+            g: Math.round(c1.g + (c2.g - c1.g) * factor),
+            b: Math.round(c1.b + (c2.b - c1.b) * factor),
+          };
+          return `rgb(${result.r}, ${result.g}, ${result.b})`;
+        }
+
+        function hexToRgb(color) {
+          // Перетворення назв кольорів у RGB для спрощення
+          const colors = {
+            blue: { r: 0, g: 0, b: 255 },
+            red: { r: 255, g: 0, b: 0 },
+            "#FF0000": { r: 255, g: 0, b: 0 },
+            green: { r: 0, g: 128, b: 0 },
+            "#00FF00": { r: 0, g: 255, b: 0 },
+          };
+          return colors[color] || { r: 0, g: 0, b: 0 };
+        }
+
+        // --- UPDATE (Оновлення логіки) ---
+        function updateState() {
+          const now = Date.now();
+          const elapsed = now - startTime;
+
+          // 1. Head Rotate: 360 градусів за 5 секунд
+          // (elapsed % 5000) дає число від 0 до 5000
+          const rotateProgress = (elapsed % 5000) / 5000;
+          figures.headRotate.angle = rotateProgress * 2 * Math.PI;
+
+          // 2. Head Color: Blue -> Red -> Green -> Blue за 4 секунди
+          const colorDuration = 4000;
+          const colorTime = elapsed % colorDuration;
+          const stage = colorTime / colorDuration; // 0.0 до 1.0
+
+          if (stage < 0.33) {
+            // Blue -> Red
+            figures.headColor.currentColor = lerpColor(
+              "blue",
+              "red",
+              stage / 0.33
+            );
+          } else if (stage < 0.66) {
+            // Red -> Green
+            figures.headColor.currentColor = lerpColor(
+              "red",
+              "#00FF00",
+              (stage - 0.33) / 0.33
+            );
+          } else {
+            // Green -> Blue
+            figures.headColor.currentColor = lerpColor(
+              "#00FF00",
+              "blue",
+              (stage - 0.66) / 0.34
+            );
+          }
+
+          // 3. Arm Move: Translate 0 -> -30 -> 0 за 1.5 сек
+          // Використовуємо Math.sin для плавності
+          const moveCycle = (elapsed % 1500) / 1500; // 0..1
+          // Sin(0..PI) дає горб від 0 до 1 і назад до 0. Ми хочемо рух тільки вгору.
+          // Або можна взяти sin(0..2PI) і брати модуль.
+          const moveFactor = Math.sin(moveCycle * Math.PI * 2);
+          // Нам треба рух вгору (від 0 до -30).
+          // SVG animateTransform values="0; -30; 0" це лінійна інтерполяція, але sin виглядає краще.
+          // Спростимо: нехай рука рухається за синусоїдою
+          figures.armMove.currentY =
+            figures.armMove.baseY -
+            Math.abs(Math.sin((elapsed / 1500) * Math.PI) * 30);
+
+          // 4. Arm Scale: 50->70->50 за 3 секунди
+          // Ширина змінюється від 50 до 70. Різниця 20.
+          const scaleFactor = Math.abs(Math.sin((elapsed / 3000) * Math.PI)); // 0..1..0
+          const extraSize = scaleFactor * 20;
+
+          figures.armScale.currentW = figures.armScale.baseW + extraSize;
+          figures.armScale.currentH = figures.armScale.baseH + extraSize;
+          // Щоб масштабування йшло "від центру" або "вбік", коригуємо X та Y
+          // В SVG x="480; 470; 480". Це зміщення на -10px при максимумі.
+          figures.armScale.currentX = figures.armScale.baseX - scaleFactor * 10;
+          figures.armScale.currentY = 180 - scaleFactor * 10; // теж трохи змістимо Y як в SVG (180->170)
+
+          // 5. Leg Skew: 0 -> 20 -> 0 градусів за 2 секунди
+          // skewX
+          const skewFactor = Math.sin((elapsed / 2000) * Math.PI); // 0 -> 1 -> 0 (тільки позитивний, якщо abs)
+          // Але SVG values="0; 20; 0". Це означає, що воно не йде в мінус.
+          figures.legSkew.skewAngle = Math.abs(skewFactor) * 20;
+        }
+
+        // --- DRAW (Малювання) ---
+        function drawScene() {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+          // 1. Статичне тіло
+          ctx.fillStyle = figures.body.color;
+          ctx.beginPath();
+          ctx.ellipse(
+            figures.body.x,
+            figures.body.y,
+            figures.body.rx,
+            figures.body.ry,
+            0,
+            0,
+            2 * Math.PI
+          );
+          ctx.fill();
+
+          ctx.fillRect(
+            figures.rect1.x,
+            figures.rect1.y,
+            figures.rect1.w,
+            figures.rect1.h
+          );
+          ctx.fillRect(
+            figures.rect2.x,
+            figures.rect2.y,
+            figures.rect2.w,
+            figures.rect2.h
+          );
+
+          // 2. Голова (Head Rotate)
+          let f = figures.headRotate;
+          ctx.save();
+          ctx.fillStyle = f.color;
+          // Переносимо центр координат в центр кола
+          ctx.translate(f.cx, f.cy);
+          ctx.rotate(f.angle);
+          // Малюємо коло в (0,0)
+          ctx.beginPath();
+          ctx.arc(0, 0, f.r, 0, 2 * Math.PI);
+          ctx.fill();
+          // Маленька "точка" або лінія, щоб було видно обертання
+          ctx.fillStyle = "white";
+          ctx.fillRect(0, 0, f.r, 2);
+          ctx.restore();
+
+          // 3. Голова (Color Change)
+          f = figures.headColor;
+          ctx.fillStyle = f.currentColor;
+          ctx.beginPath();
+          ctx.arc(f.cx, f.cy, f.r, 0, 2 * Math.PI);
+          ctx.fill();
+
+          // 4. Рука (Move)
+          f = figures.armMove;
+          ctx.fillStyle = f.color;
+          ctx.fillRect(f.x, f.currentY, f.w, f.h);
+
+          // 5. Рука (Scale)
+          f = figures.armScale;
+          ctx.fillStyle = f.color;
+          ctx.fillRect(f.currentX, f.currentY, f.currentW, f.currentH);
+
+          // 6. Нога (Skew)
+          f = figures.legSkew;
+          ctx.save();
+          ctx.fillStyle = f.color;
+          // Canvas не має методу skew(), треба використовувати transform.
+          // transform(hScale, vSkew, hSkew, vScale, dx, dy)
+          // Нам потрібен hSkew = tan(angle).
+          // Також треба змістити початок координат до фігури, щоб skew був відносно неї.
+          ctx.translate(f.x, f.y);
+          const rads = (f.skewAngle * Math.PI) / 180;
+          ctx.transform(1, 0, Math.tan(rads), 1, 0, 0); // Skew X
+          ctx.fillRect(0, 0, f.w, f.h); // Малюємо в (0,0) відносно translate
+          ctx.restore();
+
+          // Текст
+          ctx.fillStyle = figures.text.color;
+          ctx.font = "bold 24px sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(figures.text.content, figures.text.x, figures.text.y);
+        }
+
+        // --- АНІМАЦІЙНИЙ ЦИКЛ ---
+        function animationLoop() {
+          if (!isAnimating) return;
+          updateState();
+          drawScene();
+          animationFrameId = requestAnimationFrame(animationLoop);
+        }
+
+        // --- ПОДІЇ ---
+        animateBtn.onclick = function () {
+          if (!isAnimating) {
+            isAnimating = true;
+            startTime = Date.now(); // Скидаємо таймер, щоб анімація почалась спочатку
+            animationLoop();
+          }
+        };
+
+        stopBtn.onclick = function () {
+          isAnimating = false;
+          cancelAnimationFrame(animationFrameId);
+        };
+
+        // Перший рендер
+        drawScene();
+      };
+    </script>
+  </body>
+</html>
